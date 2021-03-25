@@ -15,10 +15,6 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-// PCL
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-
 // Kindr
 #include <kindr/Core>
 
@@ -28,19 +24,21 @@
 // ROS
 #include <ros/ros.h>
 
+// Elevation Mapping
+#include "elevation_mapping/PointXYZRGBConfidenceRatio.hpp"
+#include "elevation_mapping/postprocessing/PostprocessorPool.hpp"
+
 namespace elevation_mapping {
 
 /*!
  * Elevation map stored as grid map handling elevation height, variance, color etc.
  */
-class ElevationMap
-{
+class ElevationMap {
  public:
-
   /*!
    * Constructor.
    */
-  ElevationMap(ros::NodeHandle nodeHandle);
+  explicit ElevationMap(ros::NodeHandle nodeHandle);
 
   /*!
    * Destructor.
@@ -64,8 +62,8 @@ class ElevationMap
    * @param transformationSensorToMap
    * @return true if successful.
    */
-  bool add(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud, Eigen::VectorXf& pointCloudVariances,
-           const ros::Time& timeStamp, const Eigen::Affine3d& transformationSensorToMap);
+  bool add(const PointCloudType::Ptr pointCloud, Eigen::VectorXf& pointCloudVariances, const ros::Time& timeStamp,
+           const Eigen::Affine3d& transformationSensorToMap);
 
   /*!
    * Update the elevation map with variance update data.
@@ -76,10 +74,8 @@ class ElevationMap
    * @param time the time of the update.
    * @return true if successful.
    */
-  bool update(const grid_map::Matrix& varianceUpdate,
-              const grid_map::Matrix& horizontalVarianceUpdateX,
-              const grid_map::Matrix& horizontalVarianceUpdateY,
-              const grid_map::Matrix& horizontalVarianceUpdateXY, const ros::Time& time);
+  bool update(const grid_map::Matrix& varianceUpdate, const grid_map::Matrix& horizontalVarianceUpdateX,
+              const grid_map::Matrix& horizontalVarianceUpdateY, const grid_map::Matrix& horizontalVarianceUpdateXY, const ros::Time& time);
 
   /*!
    * Triggers the fusion of the entire elevation map.
@@ -115,9 +111,11 @@ class ElevationMap
   void move(const Eigen::Vector2d& position);
 
   /*!
-   * Publishes the (latest) raw elevation map.
+   * Publishes the (latest) raw elevation map. Optionally, if a postprocessing pipeline was configured,
+   * the map is postprocessed before publishing.
    * @return true if successful.
    */
+  // TODO (magnus) rename? E.g. adapt for postprocessing structure.
   bool publishRawElevationMap();
 
   /*!
@@ -235,23 +233,18 @@ class ElevationMap
 
   /*!
    * Method to set the height value around the center of the robot, can be used for initialization.
+   * @param initPosition Position to calculate inner rectangle.
    * @param mapHeight The height that gets set uniformly.
    * @param lengthInXSubmap Length of the submap in X direction.
    * @param lengthInYSubmap Length of the submap in Y direction.
    * @param margin Extra margin that gets added to the submap boundaries.
    */
-  void setRawSubmapHeight(float mapHeight, double lengthInXSubmap, double lengthInYSubmap, double margin);
+  void setRawSubmapHeight(const grid_map::Position& initPosition, float mapHeight, double lengthInXSubmap, double lengthInYSubmap,
+                          double margin);
 
   friend class ElevationMapping;
 
  private:
-
-  /*!
-   * Reads and verifies the ROS parameters.
-   * @return true if successful.
-   */
-  bool readParameters();
-
   /*!
    * Fuses a region of the map.
    * @param topLeftIndex the top left index of the region.
@@ -296,16 +289,18 @@ class ElevationMap
   //! Underlying map, used for ground truth maps, multi-robot mapping etc.
   grid_map::GridMap underlyingMap_;
 
+  //! Thread Pool to handle raw map postprocessing filter pipelines.
+  PostprocessorPool postprocessorPool_;
+
   //! True if underlying map has been set, false otherwise.
   bool hasUnderlyingMap_;
 
   //! Pose of the elevation map frame w.r.t. the inertial parent frame of the robot (e.g. world, map etc.).
   kindr::HomTransformQuatD pose_;
 
-  //! ROS publishers.
-  ros::Publisher elevationMapRawPublisher_;
+  //! ROS publishers. Publishing of the raw elevation map is handled by the postprocessing pool.
   ros::Publisher elevationMapFusedPublisher_;
-  ros::Publisher visbilityCleanupMapPublisher_;
+  ros::Publisher visibilityCleanupMapPublisher_;
 
   //! Mutex lock for fused map.
   boost::recursive_mutex fusedMapMutex_;
@@ -313,7 +308,7 @@ class ElevationMap
   //! Mutex lock for raw map.
   boost::recursive_mutex rawMapMutex_;
 
-  //! Mutex lock for vsibility cleanup map.
+  //! Mutex lock for visibility cleanup map.
   boost::recursive_mutex visibilityCleanupMapMutex_;
 
   //! Underlying map subscriber.
@@ -336,4 +331,4 @@ class ElevationMap
   double scanningDuration_;
 };
 
-} /* namespace */
+}  // namespace elevation_mapping

@@ -4,7 +4,7 @@
 
 This is a [ROS] package developed for elevation mapping with a mobile robot. The software is designed for (local) navigation tasks with robots which are equipped with a pose estimation (e.g. IMU & odometry) and a distance sensor (e.g. structured light (Kinect, RealSense), laser range sensor, stereo camera). The provided elevation map is limited around the robot and reflects the pose uncertainty that is aggregated through the motion of the robot (robot-centric mapping). This method is developed to explicitly handle drift of the robot pose estimation.
 
-The Robot-Centric Elevation Mapping packages have been tested under ROS Melodic and Ubuntu 18.04. This is research code, expect that it changes often and any fitness for a particular purpose is disclaimed.
+This is research code, expect that it changes often and any fitness for a particular purpose is disclaimed.
 
 The source code is released under a [BSD 3-Clause license](LICENSE).
 
@@ -77,15 +77,21 @@ In order to install the Robot-Centric Elevation Mapping, clone the latest versio
     cd catkin_workspace/src
     git clone https://github.com/anybotics/elevation_mapping.git
     cd ../
-    catkin_make
+    catkin config --cmake-args -DCMAKE_BUILD_TYPE=Release
+    catkin build
 
 
 ### Unit Tests
 
-Run the unit tests with
-
-    catkin_make run_tests_elevation_map_msg run_tests_elevation_mapping
-
+Build tests with
+    
+    roscd elevation_mapping
+    catkin build --catkin-make-args run_tests -- --this
+   
+Run the tests with
+    
+     rostest elevation_mapping elevation_mapping.test -t
+    
 
 ## Basic Usage
 
@@ -229,10 +235,32 @@ This is the main Robot-Centric Elevation Mapping node. It uses the distance sens
 
 #### Parameters
 
-* **`point_cloud_topic`** (string, default: "/points")
+* **`DEPRECATED point_cloud_topic`** (string, default: "/points")
 
-    The name of the distance measurements topic.
+    The name of the distance measurements topic. Use input_sources instead. 
+    
+* **`input_sources`** (list of input sources, default: none)
 
+    Here you specify your inputs to elevation mapping, currently "pointcloud" inputs are supported. 
+    
+    Example configuration:
+    ```yaml
+    input_sources:
+        front: # A name to identify the input source
+          type: pointcloud # Supported types: pointcloud
+          topic: /lidar_front/depth/points
+          queue_size: 1
+          publish_on_update: true # Wheter to publish the elevation map after a callback from this source. 
+        rear:
+          type: pointcloud
+          topic: /lidar_rear/depth/points
+          queue_size: 5
+          publish_on_update: false
+    ```
+    No input sources can be configured with an empty array:
+    ```yaml
+    input_sources: []
+    ```
 * **`robot_pose_topic`** (string, default: "/robot_state/pose")
 
     The name of the robot pose and covariance topic.
@@ -240,10 +268,6 @@ This is the main Robot-Centric Elevation Mapping node. It uses the distance sens
 * **`base_frame_id`** (string, default: "/robot")
 
     The id of the robot base tf frame.
-
-* **`sensor_frame_id`** (string, default: "/sensor")
-
-    The id of the depth sensor tf frame.
 
 * **`map_frame_id`** (string, default: "/map")
 
@@ -293,8 +317,11 @@ This is the main Robot-Centric Elevation Mapping node. It uses the distance sens
 
     Each cell in the elevation map has an uncertainty for its height value. Depending on the Mahalonobis distance of the existing height distribution and the new measurements, the incoming data is fused with the existing estimate, overwritten, or ignored. This parameter determines the threshold on the Mahalanobis distance which determines how the incoming measurements are processed.
 
-* **`sensor_processor/ignore_points_above`** (double, default: 0.4)
+* **`sensor_processor/ignore_points_above`** (double, default: inf)
     A hard threshold on the height of points introduced by the depth sensor. Points with a height over this threshold will not be considered valid during the data collection step.
+
+* **`sensor_processor/ignore_points_below`** (double, default: -inf)
+    A hard threshold on the height of points introduced by the depth sensor. Points with a height below this threshold will not be considered valid during the data collection step.
 
 * **`multi_height_noise`** (double, default: 9.0e-7)
 
@@ -315,6 +342,25 @@ This is the main Robot-Centric Elevation Mapping node. It uses the distance sens
 * **`enable_continuous_cleanup`** (bool, default: false)
 
     Enable/disable a continuous clean-up of the elevation map. If enabled, on arrival of each new sensor data the elevation map will be cleared and filled up only with the latest data from the sensor. When continuous clean-up is enabled, visibility clean-up will automatically be disabled since it is not needed in this case.
+    
+* **`num_callback_threads`** (int, default: 1, min: 1)
+    The number of threads to use for processing callbacks. More threads results in higher throughput, at cost of more resource usage. 
+
+* **`postprocessor_pipeline_name`** (string, default: postprocessor_pipeline)
+
+    The name of the pipeline to execute for postprocessing. It expects a pipeline configuration to be loaded in the private namespace of the node under this name. 
+    E.g.:
+    ```
+      <node pkg="elevation_mapping" type="elevation_mapping" name="elevation_mapping" output="screen">
+          ...
+          <rosparam command="load" file="$(find elevation_mapping_demos)/config/postprocessor_pipeline.yaml" />
+      </node>
+    ```
+    A pipeline is a grid_map_filter chain, see grid_map_demos/filters_demo.yaml and [ros / filters](http://wiki.ros.org/filters) for more information. 
+
+* **`postprocessor_num_threads`** (int, default: 1, min: 1)
+
+    The number of threads to use for asynchronous postprocessing. More threads results in higher throughput, at cost of more resource usage. 
 
 * **`scanning_duration`** (double, default: 1.0)
 
@@ -328,12 +374,15 @@ This is the main Robot-Centric Elevation Mapping node. It uses the distance sens
 
     The data for the sensor noise model.
 
+## Changelog
+
+See [Changelog]
 
 ## Bugs & Feature Requests
 
 Please report bugs and request features using the [Issue Tracker](https://github.com/anybotics/elevation_mapping/issues).
 
-
+[Changelog]: CHANGELOG.rst
 [ROS]: http://www.ros.org
 [rviz]: http://wiki.ros.org/rviz
 [grid_map_msgs/GridMap]: https://github.com/anybotics/grid_map/blob/master/grid_map_msgs/msg/GridMap.msg

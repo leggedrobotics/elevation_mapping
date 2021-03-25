@@ -12,10 +12,6 @@
 #include <ros/ros.h>
 #include <tf/transform_listener.h>
 
-// PCL
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-
 // Eigen
 #include <Eigen/Core>
 
@@ -23,60 +19,67 @@
 #include <kindr/Core>
 
 // STL
-#include <unordered_map>
-#include <string>
 #include <memory>
+#include <string>
+#include <unordered_map>
+
+// PCL
+#include "elevation_mapping/PointXYZRGBConfidenceRatio.hpp"
 
 namespace elevation_mapping {
 
 /*!
-* Generic Sensor processor base class. Provides functionalities
-* common to all sensors and defines the interface for specialized
-* sensor processor classes.
-* Cleans the point cloud, transforms it to a desired frame, and
-* computes the measurement variances based on a sensor model in
-* the desired frame.
-*/
-class SensorProcessorBase
-{
-public:
+ * Generic Sensor processor base class. Provides functionalities
+ * common to all sensors and defines the interface for specialized
+ * sensor processor classes.
+ * Cleans the point cloud, transforms it to a desired frame, and
+ * computes the measurement variances based on a sensor model in
+ * the desired frame.
+ */
+class SensorProcessorBase {
+ public:
+  using Ptr = std::unique_ptr<SensorProcessorBase>;
+  friend class ElevationMapping;
+  friend class Input;
+
+  struct GeneralParameters {
+    std::string robotBaseFrameId_;
+    std::string mapFrameId_;
+
+    GeneralParameters(std::string robotBaseFrameId = "robot", std::string mapFrameId = "map")
+        : robotBaseFrameId_(std::move(robotBaseFrameId)), mapFrameId_(std::move(mapFrameId)) {}
+  };
 
   /*!
    * Constructor.
    * @param nodeHandle the ROS node handle.
-   * @param transformListener the ROS transform listener.
+   * @param generalConfig General parameters that the sensor processor must know in order to work. // TODO (magnus) improve documentation.
    */
-	SensorProcessorBase(ros::NodeHandle& nodeHandle, tf::TransformListener& transformListener);
+  SensorProcessorBase(ros::NodeHandle& nodeHandle, const GeneralParameters& generalConfig);
 
-	/*!
-	 * Destructor.
-	 */
-	virtual ~SensorProcessorBase();
+  /*!
+   * Destructor.
+   */
+  virtual ~SensorProcessorBase();
 
-	/*!
-	 * Processes the point cloud.
-	 * @param[in] pointCloudInput the input point cloud.
-	 * @param[in] targetFrame the frame to which the point cloud should be transformed. // TODO Update.
-	 * @param[out] pointCloudOutput the processed point cloud.
-	 * @param[out] variances the measurement variances expressed in the target frame.
-	 * @return true if successful.
-	 */
-  bool process(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr pointCloudInput,
-               const Eigen::Matrix<double, 6, 6>& robotPoseCovariance,
-               const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudOutput, Eigen::VectorXf& variances);
+  /*!
+   * Processes the point cloud.
+   * @param[in] pointCloudInput the input point cloud.
+   * @param[in] targetFrame the frame to which the point cloud should be transformed. // TODO Update.
+   * @param[out] pointCloudOutput the processed point cloud.
+   * @param[out] variances the measurement variances expressed in the target frame.
+   * @return true if successful.
+   */
+  bool process(const PointCloudType::ConstPtr pointCloudInput, const Eigen::Matrix<double, 6, 6>& robotPoseCovariance,
+               const PointCloudType::Ptr pointCloudMapFrame, Eigen::VectorXf& variances, std::string sensorFrame);
 
   /*!
    * Checks if a valid tf transformation was received since startup.
    * @return True if there was one valid tf transformation.
-   */ 
+   */
   bool isTfAvailableInBuffer() { return firstTfAvailable_; }
 
-  typedef std::unique_ptr<SensorProcessorBase> Ptr;
-
-	friend class ElevationMapping;
-
  protected:
-
   /*!
    * Reads and verifies the parameters.
    * @return true if successful.
@@ -90,14 +93,14 @@ public:
    * @param pointCloud the point cloud to clean.
    * @return true if successful.
    */
-  bool filterPointCloud(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud);
+  bool filterPointCloud(const PointCloudType::Ptr pointCloud);
 
   /*!
    * Sensor specific point cloud cleaning.
    * @param pointCloud the point cloud to clean.
    * @return true if successful.
    */
-  virtual bool filterPointCloudSensorType(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud);
+  virtual bool filterPointCloudSensorType(const PointCloudType::Ptr pointCloud);
 
   /*!
    * Computes the elevation map height variances for each point in a point cloud with the
@@ -107,9 +110,8 @@ public:
    * @param[out] variances the elevation map height variances.
    * @return true if successful.
    */
-  virtual bool computeVariances(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr pointCloud,
-                                const Eigen::Matrix<double, 6, 6>& robotPoseCovariance, Eigen::VectorXf& variances) = 0;
-
+  virtual bool computeVariances(const PointCloudType::ConstPtr pointCloud, const Eigen::Matrix<double, 6, 6>& robotPoseCovariance,
+                                Eigen::VectorXf& variances) = 0;
 
   /*!
    * Update the transformations for a given time stamp.
@@ -125,25 +127,19 @@ public:
    * @param[in] targetFrame the desired target frame.
    * @return true if successful.
    */
-  bool transformPointCloud(pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr pointCloud,
-                           pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudTransformed,
-                           const std::string& targetFrame);
+  bool transformPointCloud(PointCloudType::ConstPtr pointCloud, PointCloudType::Ptr pointCloudTransformed, const std::string& targetFrame);
 
   /*!
    * Removes points with z-coordinate above a limit in map frame.
    * @param[in/out] pointCloud the point cloud to be cropped.
    */
-  void removePointsOutsideLimits(pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr reference,
-                                 std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr>& pointClouds);
+  void removePointsOutsideLimits(PointCloudType::ConstPtr reference, std::vector<PointCloudType::Ptr>& pointClouds);
 
   //! ROS nodehandle.
   ros::NodeHandle& nodeHandle_;
 
   //! TF transform listener.
-  tf::TransformListener& transformListener_;
-
-  //! The timeout duration for the lookup of the transformation between sensor frame and target frame.
-  ros::Duration transformListenerTimeout_;
+  tf::TransformListener transformListener_;
 
   //! Rotation from Base to Sensor frame (C_SB)
   kindr::RotationMatrixD rotationBaseToSensor_;
@@ -160,11 +156,7 @@ public:
   //! Transformation from Sensor to Map frame
   Eigen::Affine3d transformationSensorToMap_;
 
-  //! TF frame id of the map.
-  std::string mapFrameId_;
-
-  //! TF frame id of the robot base.
-  std::string robotBaseFrameId_;
+  GeneralParameters generalParameters_;
 
   //! TF frame id of the range sensor for the point clouds.
   std::string sensorFrameId_;

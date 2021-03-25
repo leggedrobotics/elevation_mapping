@@ -9,36 +9,32 @@
 #pragma once
 
 #include <elevation_mapping/sensor_processors/SensorProcessorBase.hpp>
+#include "elevation_mapping/PointXYZRGBConfidenceRatio.hpp"
 
 namespace elevation_mapping {
 
 /*!
  * Sensor processor for StructuredLight-type (PrimeSense) structured light sensors.
  */
-class StructuredLightSensorProcessor : public SensorProcessorBase
-{
-
-public:
-
+class StructuredLightSensorProcessor : public SensorProcessorBase {
+ public:
   /*!
    * Constructor.
    * @param nodeHandle the ROS node handle.
-   * @param transformListener the ROS transform listener.
    */
-  StructuredLightSensorProcessor(ros::NodeHandle& nodeHandle, tf::TransformListener& transformListener);
+  StructuredLightSensorProcessor(ros::NodeHandle& nodeHandle, const SensorProcessorBase::GeneralParameters& generalParameters);
 
   /*!
    * Destructor.
    */
-  virtual ~StructuredLightSensorProcessor();
+  ~StructuredLightSensorProcessor() override;
 
-private:
-
+ private:
   /*!
    * Reads and verifies the parameters.
    * @return true if successful.
    */
-  bool readParameters();
+  bool readParameters() override;
 
   /*!
    * Computes the elevation map height variances for each point in a point cloud with the
@@ -48,16 +44,14 @@ private:
    * @param[out] variances the elevation map height variances.
    * @return true if successful.
    */
-  virtual bool computeVariances(
-      const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr pointCloud,
-	  const Eigen::Matrix<double, 6, 6>& robotPoseCovariance,
-	  Eigen::VectorXf& variances);
+  bool computeVariances(const PointCloudType::ConstPtr pointCloud, const Eigen::Matrix<double, 6, 6>& robotPoseCovariance,
+                        Eigen::VectorXf& variances) override;
 
-    /*!
+  /*!
    * Cuts off points that are not within the cutoff interval
    * @param pointCloud the point cloud to filter.
    * @return true if successful.
-  */
-    bool filterPointCloudSensorType(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloud);
+   */
+  bool filterPointCloudSensorType(const PointCloudType::Ptr pointCloud) override;
 };
 } /* namespace elevation_mapping */
